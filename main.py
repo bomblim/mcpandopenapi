@@ -6,7 +6,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from api import router
 from config import settings
-from mcp import mcp
+from registry import mcp
 
 
 # ── Session Manager ───────────────────────────────────────────────────────────
