@@ -1,7 +1,29 @@
 # My Custom MCP Server
 
-FastAPI 기반의 MCP(Model Context Protocol) + OpenAPI 서버입니다.  
-REST API와 MCP 엔드포인트를 동시에 제공하며, 하나의 Tool 정의로 양쪽에 자동 반영됩니다.
+stdio 기반 MCP(Model Context Protocol) 서버입니다.  
+`mcpo`를 통해 OpenAPI/Swagger HTTP 인터페이스를 자동으로 제공하며, 하나의 Tool 정의로 MCP와 REST 양쪽에 자동 반영됩니다.
+
+---
+
+## 아키텍처
+
+```
+main.py (stdio MCP)
+     │
+     └──▶ registry.py ──▶ MCP Tools (FastMCP)
+                │
+                └──▶ tool_meta.py  (설명 Single Source of Truth)
+                └──▶ tools.py      (비즈니스 로직)
+
+mcpo (HTTP 게이트웨이)
+     │
+     ├──▶ GET  /docs          Swagger UI
+     ├──▶ GET  /openapi.json  OpenAPI 스펙
+     └──▶ POST /<tool_name>   Tool 엔드포인트 (자동 생성)
+```
+
+`main.py`는 stdio MCP 서버로 실행되고, `mcpo`가 이를 감싸서 HTTP 서버로 노출합니다.  
+별도의 FastAPI 라우터 없이 MCP Tool 정의만으로 OpenAPI 스펙이 자동 생성됩니다.
 
 ---
 
@@ -9,21 +31,17 @@ REST API와 MCP 엔드포인트를 동시에 제공하며, 하나의 Tool 정의
 
 ```
 .
-├── main.py              # FastAPI 앱 진입점, MCP 마운트
-├── config.py            # 환경 변수 설정 (pydantic-settings)
-├── registry.py          # MCP Tool 등록
+├── main.py              # stdio MCP 진입점 (mcp.run())
+├── registry.py          # MCP Tool 등록 (FastMCP)
 ├── tool_meta.py         # Tool 메타데이터 중앙 관리 (Single Source of Truth)
+├── tools.py             # 비즈니스 로직 re-export
 ├── search.py            # 비즈니스 로직: 사내 DB 검색
 ├── report.py            # 비즈니스 로직: 리포트 조회
-├── tools.py             # 비즈니스 로직 re-export
-├── api/
-│   ├── __init__.py
-│   ├── router.py        # APIRouter 조합
-│   ├── schemas.py       # Pydantic Request 모델
-│   └── endpoints/
-│       ├── search.py    # POST /search_internal_db
-│       └── report.py    # POST /get_report
-└── mnt/                 # 참조용 초기 설계 파일 (무시 가능)
+├── config.py            # 환경 변수 설정 (pydantic-settings)
+├── .env.example         # 환경 변수 예시
+├── install.ps1 / .sh / .bat
+├── start.ps1   / .sh / .bat
+└── watch.ps1   / .sh / .bat
 ```
 
 ---
@@ -90,26 +108,97 @@ start.bat
 watch.bat
 ```
 
-> 재시작 시 8000번 포트를 점유 중인 프로세스를 자동으로 종료합니다.
+> 재시작 시 8000번 포트를 점유 중인 프로세스를 자동으로 종료합니다.  
+> `watch` 스크립트는 `watchfiles`로 `.py` 파일 변경을 감지하여 `mcpo` + MCP 프로세스를 함께 재시작합니다.
 
 ### 4. 동작 확인
 
 | URL | 설명 |
 |-----|------|
-| `http://localhost:8000/docs` | Swagger UI (REST API) |
+| `http://localhost:8000/docs` | Swagger UI (mcpo 자동 생성) |
 | `http://localhost:8000/openapi.json` | OpenAPI 스펙 |
-| `http://localhost:8000/mcp` | MCP Streamable HTTP 엔드포인트 |
+| `http://localhost:8000/<tool_name>` | Tool 엔드포인트 (POST) |
+
+---
+
+## mcpo 설정
+
+### mcpo란?
+
+[mcpo](https://github.com/open-webui/mcpo)는 stdio MCP 서버를 HTTP/OpenAPI 서버로 변환해 주는 프록시입니다.  
+MCP Tool이 추가되면 별도 설정 없이 HTTP 엔드포인트와 Swagger 문서가 자동으로 생성됩니다.
+
+### 실행 구조
+
+```bash
+mcpo --port 8000 -- python main.py
+#     └── HTTP 포트  └── stdio MCP 서버 실행 명령
+```
+
+`mcpo`가 `python main.py`를 자식 프로세스로 실행하고, stdin/stdout으로 MCP 프로토콜을 중계합니다.
+
+### 주요 옵션
+
+| 옵션 | 기본값 | 설명 |
+|------|--------|------|
+| `--port` | `8000` | HTTP 서버 포트 |
+| `--host` | `0.0.0.0` | 바인딩 주소 |
+| `--api-key` | 없음 | Bearer 토큰 인증 활성화 |
+| `--allow-http` | `false` | HTTPS 없이 HTTP 허용 |
+
+#### API Key 인증 적용 예시
+
+```bash
+mcpo --port 8000 --api-key "your-secret-key" -- python main.py
+```
+
+요청 시 헤더에 추가:
+```
+Authorization: Bearer your-secret-key
+```
+
+`start.ps1`에 적용하려면:
+
+```powershell
+mcpo --port $port --api-key "your-secret-key" -- python main.py
+```
+
+### Claude Desktop 연동
+
+`claude_desktop_config.json`에 stdio MCP로 직접 등록합니다.  
+이 경우 `mcpo` 없이 `main.py`를 직접 사용합니다.
+
+```json
+{
+  "mcpServers": {
+    "my-custom-mcp": {
+      "command": "python",
+      "args": ["C:/path/to/project/main.py"]
+    }
+  }
+}
+```
+
+### Open WebUI / REST 클라이언트 연동
+
+mcpo로 실행 중일 때 HTTP 엔드포인트를 사용합니다.
+
+```bash
+curl -X POST http://localhost:8000/search_internal_db \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Q1 매출", "department": "영업팀"}'
+```
 
 ---
 
 ## Tool 개발 방법
 
-새로운 Tool을 추가할 때는 아래 4단계를 순서대로 진행합니다.
+새로운 Tool을 추가할 때는 아래 3단계를 순서대로 진행합니다.
 
 ### Step 1. `tool_meta.py` — 메타데이터 등록
 
-Tool 설명, 인자 설명, 응답 설명을 한 곳에서 관리합니다.  
-MCP description과 OpenAPI summary/description 양쪽에 자동으로 주입됩니다.
+Tool 설명과 인자 설명을 한 곳에서 관리합니다.  
+`registry.py`의 MCP description과 `api/` 의 OpenAPI 스펙 양쪽에 자동으로 주입됩니다.
 
 ```python
 # tool_meta.py
@@ -134,7 +223,6 @@ TOOL_META = {
 ```python
 # my_new_tool.py
 def my_new_tool(param1: str, param2: int = 0) -> dict:
-    # 실제 로직 구현
     return {"param1": param1, "param2": param2}
 ```
 
@@ -149,81 +237,14 @@ from my_new_tool import my_new_tool          # 추가
 __all__ = ["search_internal_db", "get_report", "my_new_tool"]
 ```
 
-### Step 3. `api/` — REST 엔드포인트 추가
-
-**Request 스키마** (`api/schemas.py`)
+### Step 3. `registry.py` — MCP Tool 등록
 
 ```python
-class MyNewToolRequest(BaseModel):
-    param1: str       = Field(...,  description=TOOL_META["my_new_tool"]["args"]["param1"])
-    param2: int       = Field(0,    description=TOOL_META["my_new_tool"]["args"]["param2"])
-```
-
-**엔드포인트** (`api/endpoints/my_new_tool.py`)
-
-```python
-from fastapi import APIRouter
-from api.schemas import MyNewToolRequest
-from tool_meta import TOOL_META
-from tools import my_new_tool
-
-_m = TOOL_META["my_new_tool"]
-router = APIRouter()
-
-@router.post(
-    "/my_new_tool",
-    summary=_m["summary"],
-    description=_m["description"],
-    response_description=_m["response_description"],
-)
-def api_my_new_tool(req: MyNewToolRequest) -> dict:
-    return my_new_tool(req.param1, req.param2)
-```
-
-**라우터에 등록** (`api/endpoints/__init__.py`)
-
-```python
-from .report import router as report_router
-from .search import router as search_router
-from .my_new_tool import router as my_new_tool_router   # 추가
-
-__all__ = ["search_router", "report_router", "my_new_tool_router"]
-```
-
-`api/router.py`에서 포함시킵니다.
-
-```python
-from api.endpoints import report_router, search_router, my_new_tool_router
-
-router = APIRouter()
-router.include_router(search_router)
-router.include_router(report_router)
-router.include_router(my_new_tool_router)   # 추가
-```
-
-### Step 4. `registry.py` — MCP Tool 등록
-
-```python
-from tools import get_report, search_internal_db, my_new_tool
+from tools import get_report, search_internal_db, my_new_tool   # 추가
 
 @mcp.tool(description=TOOL_META["my_new_tool"]["description"])
 def mcp_my_new_tool(param1: str, param2: int = 0) -> dict:
     return my_new_tool(param1, param2)
 ```
 
----
-
-## 아키텍처 요약
-
-```
-tool_meta.py  ←─────────────────────────────┐
-     │                                       │
-     ▼                                       │
-비즈니스 로직 (search.py, report.py, ...)    │
-     │                                       │
-     ├──▶ api/endpoints/*.py  ──▶ REST API  (OpenAPI/Swagger)
-     │
-     └──▶ registry.py  ──▶ MCP Tools  (/mcp)
-```
-
-`tool_meta.py`가 Single Source of Truth로, 하나의 설명을 수정하면 REST API 문서와 MCP Tool 설명이 동시에 반영됩니다.
+저장하면 `watch` 스크립트가 자동으로 서버를 재시작하고, `http://localhost:8000/docs`에서 새 Tool을 즉시 확인할 수 있습니다.
