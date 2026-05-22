@@ -1,14 +1,36 @@
 #!/bin/bash
+MODE=${1:-stdio}
 PORT_HTTP=8000
 PORT_REST=8001
 
-lsof -ti :$PORT_HTTP | xargs kill -9 2>/dev/null || true
-lsof -ti :$PORT_REST | xargs kill -9 2>/dev/null || true
-
 export PATH="$(python3 -c "import sys,os; print(os.path.join(os.path.dirname(sys.executable),'bin'))")":$PATH
 
-# StreamableHTTP MCP server (:8000/mcp)
-python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT_HTTP &
+kill_port() { lsof -ti :$1 | xargs kill -9 2>/dev/null || true; }
 
-# mcpo REST/OpenAPI server (:8001)
-mcpo --port $PORT_REST -- python3 main.py
+case $MODE in
+    stdio)
+        python3 main.py
+        ;;
+    http)
+        kill_port $PORT_HTTP
+        python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT_HTTP
+        ;;
+    mcpo)
+        kill_port $PORT_REST
+        mcpo --port $PORT_REST -- python3 main.py
+        ;;
+    remoteall)
+        kill_port $PORT_HTTP
+        kill_port $PORT_REST
+        python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT_HTTP &
+        mcpo --port $PORT_REST -- python3 main.py
+        ;;
+    *)
+        echo "Usage: $0 [stdio|http|mcpo|remoteall]"
+        echo "  stdio : stdio MCP             (Claude Desktop 직접 연결)"
+        echo "  http  : StreamableHTTP MCP    (:${PORT_HTTP}/mcp)"
+        echo "  mcpo  : REST/OpenAPI          (:${PORT_REST}/docs)"
+        echo "  remoteall   : http + mcpo 동시 실행 (기본값)"
+        exit 1
+        ;;
+esac

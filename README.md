@@ -90,35 +90,44 @@ MCPO_PORT=8001
 
 ### 3. 서버 실행
 
+`start` / `watch` 스크립트는 모드 인자로 실행 방식을 선택합니다.  
+인자가 없으면 기본값 `stdio`로 실행됩니다.
+
+| 모드 | 설명 | 포트 |
+|------|------|------|
+| `stdio` | stdio MCP (기본값) | — |
+| `http` | StreamableHTTP MCP | `:8000/mcp` |
+| `mcpo` | REST/OpenAPI | `:8001/docs` |
+| `remoteall` | http + mcpo 동시 실행 | `:8000` + `:8001` |
+
 **프로덕션 (일반 실행)**
 
 ```bash
 # Linux/Mac
-./start.sh
+./start.sh [stdio|http|mcpo|remoteall]
 
 # Windows (PowerShell)
-./start.ps1
+./start.ps1 [-mode stdio|http|mcpo|remoteall]
 
 # Windows (CMD)
-start.bat
+start.bat [stdio|http|mcpo|remoteall]
 ```
 
 **개발 (파일 변경 시 자동 재시작)**
 
 ```bash
 # Linux/Mac
-./watch.sh
+./watch.sh [stdio|http|mcpo|remoteall]
 
 # Windows (PowerShell)
-./watch.ps1
+./watch.ps1 [-mode stdio|http|mcpo|remoteall]
 
 # Windows (CMD)
-watch.bat
+watch.bat [stdio|http|mcpo|remoteall]
 ```
 
-> 두 서버(uvicorn :8000, mcpo :8001)를 동시에 시작합니다.  
-> 재시작 시 양쪽 포트를 점유 중인 프로세스를 자동으로 종료합니다.  
-> `watch` 스크립트는 uvicorn을 `--reload` 모드로, mcpo는 `watchfiles`로 파일 변경을 감지합니다.
+> `watch` 모드: `http`는 uvicorn `--reload`, `mcpo`·`remoteall`은 `watchfiles`로 파일 변경을 감지합니다.  
+> 재시작 시 해당 모드의 포트를 점유 중인 프로세스를 자동으로 종료합니다.
 
 ### 4. 동작 확인
 
