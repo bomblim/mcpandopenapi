@@ -1,9 +1,10 @@
 # My Custom MCP Server
 
-MCP(Model Context Protocol) 서버로, 두 가지 전송 방식을 병행 운영합니다.
+MCP(Model Context Protocol) 서버로, 세 가지 전송 방식을 지원합니다.
 
-- **StreamableHTTP** (`server.py`): MCP 클라이언트가 HTTP로 직접 연결
-- **stdio + mcpo** (`main.py`): REST/OpenAPI 자동 생성, Claude Desktop stdio 연결, MCP Inspector
+- **stdio** (`main.py`): Claude Desktop 직접 연결, MCP Inspector
+- **StreamableHTTP** (`mcp-proxy`): MCP 클라이언트가 HTTP로 연결
+- **REST/OpenAPI** (`mcpo`): Swagger UI, HTTP REST 클라이언트
 
 ---
 
@@ -15,16 +16,16 @@ MCP(Model Context Protocol) 서버로, 두 가지 전송 방식을 병행 운영
                     │  (FastMCP)    │◀── tools/ (비즈니스 로직)
                     └──────┬────────┘
                            │
-          ┌────────────────┴─────────────────┐
-          │                                  │
-    server.py                            main.py
-  (StreamableHTTP)                        (stdio)
-          │                                  │
-    uvicorn :8000                        mcpo :8001
-          │                                  │
-    GET/POST /mcp    ──  MCP 클라이언트    GET  /docs
-                                         GET  /openapi.json
-                                         POST /<tool_name>
+                       main.py (stdio)
+                           │
+          ┌────────────────┼─────────────────┐
+          │                │                 │
+     직접 실행          mcp-proxy          mcpo
+   (stdio transport)   :APP_PORT          :MCPO_PORT
+          │                │                 │
+   Claude Desktop      /mcp endpoint      /docs
+   MCP Inspector       MCP 클라이언트     /openapi.json
+                                          /<tool_name>
 ```
 
 ---
@@ -34,7 +35,6 @@ MCP(Model Context Protocol) 서버로, 두 가지 전송 방식을 병행 운영
 ```
 .
 ├── main.py              # stdio MCP 진입점 (mcp.run())
-├── server.py            # StreamableHTTP MCP 진입점 (FastAPI + /mcp)
 ├── registry.py          # MCP Tool 등록 (FastMCP)
 ├── tool_meta.py         # tool_meta.jsonc 로더
 ├── tools/
@@ -81,24 +81,26 @@ copy .env.example .env
 ```env
 APP_HOST=0.0.0.0
 
-# StreamableHTTP MCP 서버 포트 (http://localhost:8000/mcp)
+# StreamableHTTP MCP 서버 포트 — mcp-proxy (http://localhost:8000/mcp)
 APP_PORT=8000
 
-# mcpo REST/OpenAPI 서버 포트 (http://localhost:8001/docs)
+# REST/OpenAPI 서버 포트 — mcpo (http://localhost:8001/docs)
 MCPO_PORT=8001
 ```
 
+> 포트 값은 `start` / `watch` 스크립트 실행 시 `.env`에서 자동으로 읽어옵니다.  
+> `.env`가 없으면 기본값(`APP_PORT=8000`, `MCPO_PORT=8001`)을 사용합니다.
+
 ### 3. 서버 실행
 
-`start` / `watch` 스크립트는 모드 인자로 실행 방식을 선택합니다.  
-인자가 없으면 기본값 `stdio`로 실행됩니다.
+모드 인자로 실행 방식을 선택합니다. 인자가 없으면 기본값 `stdio`로 실행됩니다.
 
 | 모드 | 설명 | 포트 |
 |------|------|------|
 | `stdio` | stdio MCP (기본값) | — |
-| `http` | StreamableHTTP MCP | `:8000/mcp` |
-| `mcpo` | REST/OpenAPI | `:8001/docs` |
-| `remoteall` | http + mcpo 동시 실행 | `:8000` + `:8001` |
+| `http` | StreamableHTTP MCP via mcp-proxy | `APP_PORT` |
+| `mcpo` | REST/OpenAPI via mcpo | `MCPO_PORT` |
+| `remoteall` | http + mcpo 동시 실행 | `APP_PORT` + `MCPO_PORT` |
 
 **프로덕션 (일반 실행)**
 
@@ -126,17 +128,21 @@ start.bat [stdio|http|mcpo|remoteall]
 watch.bat [stdio|http|mcpo|remoteall]
 ```
 
-> `watch` 모드: `http`는 uvicorn `--reload`, `mcpo`·`remoteall`은 `watchfiles`로 파일 변경을 감지합니다.  
-> 재시작 시 해당 모드의 포트를 점유 중인 프로세스를 자동으로 종료합니다.
+> `watch` 모드 재시작 동작:
+> - `http`: mcp-proxy를 `watchfiles`로 감지하여 자동 재시작
+> - `mcpo`: mcpo를 `watchfiles`로 감지하여 자동 재시작
+> - `remoteall`: mcpo만 `watchfiles` 자동 재시작 / mcp-proxy는 백그라운드 직접 실행(재시작 필요 시 스크립트 재실행)
+>
+> 재시작 시 해당 포트를 점유 중인 프로세스를 자동으로 종료합니다.
 
 ### 4. 동작 확인
 
-| URL | 서버 | 설명 |
+| URL | 모드 | 설명 |
 |-----|------|------|
-| `http://localhost:8000/mcp` | server.py (uvicorn) | MCP StreamableHTTP 엔드포인트 |
-| `http://localhost:8001/docs` | main.py (mcpo) | Swagger UI |
-| `http://localhost:8001/openapi.json` | main.py (mcpo) | OpenAPI 스펙 |
-| `http://localhost:8001/<tool_name>` | main.py (mcpo) | Tool REST 엔드포인트 (POST) |
+| `http://localhost:8000/mcp` | `http` | MCP StreamableHTTP 엔드포인트 |
+| `http://localhost:8001/docs` | `mcpo` | Swagger UI |
+| `http://localhost:8001/openapi.json` | `mcpo` | OpenAPI 스펙 |
+| `http://localhost:8001/<tool_name>` | `mcpo` | Tool REST 엔드포인트 (POST) |
 
 ### 5. MCP Inspector
 
@@ -152,8 +158,6 @@ watch.bat [stdio|http|mcpo|remoteall]
 
 ### Claude Desktop — stdio
 
-`claude_desktop_config.json`에 stdio MCP로 등록합니다.
-
 ```json
 {
   "mcpServers": {
@@ -167,7 +171,7 @@ watch.bat [stdio|http|mcpo|remoteall]
 
 ### Claude Desktop — StreamableHTTP
 
-서버 실행 후 HTTP 방식으로 연결합니다.
+`start.ps1 -mode http` 실행 후 HTTP 방식으로 연결합니다.
 
 ```json
 {
@@ -182,7 +186,7 @@ watch.bat [stdio|http|mcpo|remoteall]
 
 ### Open WebUI / REST 클라이언트
 
-mcpo가 제공하는 REST 엔드포인트를 사용합니다.
+`start.ps1 -mode mcpo` 실행 후 REST 엔드포인트를 사용합니다.
 
 ```bash
 curl -X POST http://localhost:8001/search_internal_db \
@@ -192,36 +196,45 @@ curl -X POST http://localhost:8001/search_internal_db \
 
 ---
 
-## mcpo 설정
+## mcpo / mcp-proxy 설정
 
-[mcpo](https://github.com/open-webui/mcpo)는 stdio MCP 서버를 HTTP/OpenAPI 서버로 변환해 주는 프록시입니다.
+### mcpo — REST/OpenAPI 게이트웨이
 
-### 실행 구조
+[mcpo](https://github.com/open-webui/mcpo)는 stdio MCP를 HTTP/OpenAPI 서버로 변환합니다.
 
 ```bash
 mcpo --port 8001 -- python main.py
-#     └── HTTP 포트   └── stdio MCP 서버 실행 명령
 ```
-
-### 주요 옵션
 
 | 옵션 | 기본값 | 설명 |
 |------|--------|------|
 | `--port` | `8000` | HTTP 서버 포트 |
 | `--host` | `0.0.0.0` | 바인딩 주소 |
-| `--api-key` | 없음 | Bearer 토큰 인증 활성화 |
+| `--api-key` | 없음 | Bearer 토큰 인증 |
 | `--allow-http` | `false` | HTTPS 없이 HTTP 허용 |
 
-### API Key 인증
-
+API Key 인증 적용:
 ```bash
 mcpo --port 8001 --api-key "your-secret-key" -- python main.py
+# 요청 헤더: Authorization: Bearer your-secret-key
 ```
 
-요청 시 헤더:
+### mcp-proxy — SSE/StreamableHTTP 게이트웨이
+
+[mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)는 stdio MCP를 SSE 또는 StreamableHTTP 서버로 변환합니다.
+
+```bash
+mcp-proxy --host 0.0.0.0 --port 8000 -- python main.py
 ```
-Authorization: Bearer your-secret-key
-```
+
+> 기본 host가 `127.0.0.1`이므로 외부 접근이 필요한 경우 반드시 `--host 0.0.0.0`을 지정해야 합니다.
+
+| 옵션 | 기본값 | 설명 |
+|------|--------|------|
+| `--port` | 랜덤 | 노출할 포트 |
+| `--host` | `127.0.0.1` | 바인딩 주소 |
+| `--allow-origin` | 없음 | CORS 허용 origin |
+| `--stateless` | `false` | Stateless 모드 (StreamableHTTP) |
 
 ---
 

@@ -1,7 +1,12 @@
 #!/bin/bash
 MODE=${1:-stdio}
-PORT_HTTP=8000
-PORT_REST=8001
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a; source "$SCRIPT_DIR/.env"; set +a
+fi
+PORT_HTTP=${APP_PORT:-8000}
+PORT_REST=${MCPO_PORT:-8001}
 
 export PATH="$(python3 -c "import sys,os; print(os.path.join(os.path.dirname(sys.executable),'bin'))")":$PATH
 
@@ -13,7 +18,7 @@ case $MODE in
         ;;
     http)
         kill_port $PORT_HTTP
-        python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT_HTTP --reload
+        python3 -m watchfiles "mcp-proxy --host 0.0.0.0 --port $PORT_HTTP -- python3 main.py" .
         ;;
     mcpo)
         kill_port $PORT_REST
@@ -22,7 +27,7 @@ case $MODE in
     remoteall)
         kill_port $PORT_HTTP
         kill_port $PORT_REST
-        python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT_HTTP --reload &
+        python3 -m watchfiles "mcp-proxy --host 0.0.0.0 --port $PORT_HTTP -- python3 main.py" . &
         python3 -m watchfiles "mcpo --port $PORT_REST -- python3 main.py" .
         ;;
     *)

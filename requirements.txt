@@ -1,6 +1,4 @@
-fastapi
-uvicorn[standard]
 mcp[cli]
-pydantic-settings
-python-dotenv
 mcpo
+mcp-proxy
+python-dotenv

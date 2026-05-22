@@ -2,8 +2,15 @@
 set MODE=%~1
 if "%MODE%"=="" set MODE=stdio
 
-set PORT_HTTP=8000
-set PORT_REST=8001
+set APP_PORT=8000
+set MCPO_PORT=8001
+if exist "%~dp0.env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%~dp0.env") do (
+        if not "%%a"=="" set %%a=%%b
+    )
+)
+set PORT_HTTP=%APP_PORT%
+set PORT_REST=%MCPO_PORT%
 
 for /f "delims=" %%i in ('python -c "import sys,os; print(os.path.join(os.path.dirname(sys.executable),\"Scripts\"))"') do set PATH=%%i;%PATH%
 
@@ -25,7 +32,7 @@ goto :eof
 
 :http
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr /R ":%PORT_HTTP% "') do taskkill /F /PID %%a >nul 2>&1
-python -m uvicorn server:app --host 0.0.0.0 --port %PORT_HTTP% --reload
+python -m watchfiles "mcp-proxy --host 0.0.0.0 --port %PORT_HTTP% -- python main.py" .
 goto :eof
 
 :mcpo
@@ -36,6 +43,6 @@ goto :eof
 :remoteall
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr /R ":%PORT_HTTP% "') do taskkill /F /PID %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr /R ":%PORT_REST% "') do taskkill /F /PID %%a >nul 2>&1
-start /B python -m uvicorn server:app --host 0.0.0.0 --port %PORT_HTTP% --reload
+start /B python -m watchfiles "mcp-proxy --host 0.0.0.0 --port %PORT_HTTP% -- python main.py" .
 python -m watchfiles "mcpo --port %PORT_REST% -- python main.py" .
 goto :eof
