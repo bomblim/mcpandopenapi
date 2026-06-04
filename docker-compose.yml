@@ -1,0 +1,33 @@
+services:
+
+  # ── StreamableHTTP MCP 서버 ──────────────────────────────
+  # http://localhost:8000/mcp
+  mcp:
+    build: .
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file: .env
+    command: ["mcp", "run", "registry.py", "--transport", "streamable-http", "--port", "8000"]
+
+  # ── mcpo: REST/OpenAPI 래퍼 ──────────────────────────────
+  # http://localhost:8001/docs
+  # stdio MCP을 직접 래핑하므로 mcp 서비스와 독립적으로 실행
+  mcpo:
+    build: .
+    ports:
+      - "${MCPO_PORT:-8001}:8001"
+    env_file: .env
+    command: ["mcpo", "--port", "8001", "--", "python", "main.py"]
+
+  # ── mcp-proxy: SSE 브릿지 ────────────────────────────────
+  # http://localhost:9000  (mcp 서비스의 streamable-http를 SSE로 변환)
+  # 필요할 때만 주석 해제
+  # mcp-proxy:
+  #   build: .
+  #   ports:
+  #     - "9000:9000"
+  #   env_file: .env
+  #   depends_on:
+  #     - mcp
+  #   command: ["mcp-proxy", "--port", "9000", "--sse-path", "/sse",
+  #             "http://mcp:8000/mcp"]

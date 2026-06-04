@@ -43,6 +43,8 @@ MCP(Model Context Protocol) 서버로, 세 가지 전송 방식을 지원합니�
 │   ├── report.py        # 리포트 조회 구현
 │   └── tool_meta.jsonc  # Tool 메타데이터 (Single Source of Truth)
 ├── .env.example
+├── Dockerfile
+├── docker-compose.yml
 ├── install.ps1 / .sh / .bat
 ├── start.ps1   / .sh / .bat
 ├── watch.ps1   / .sh / .bat
@@ -151,6 +153,64 @@ watch.bat [stdio|http|mcpo|remoteall]
 ```
 
 브라우저에서 `http://localhost:6274`로 접속하여 Tool을 테스트할 수 있습니다.
+
+---
+
+## Docker
+
+### docker-compose (권장)
+
+```bash
+# 이미지 빌드 + 전체 서비스 실행 (mcp + mcpo)
+docker compose up --build
+
+# 특정 서비스만 실행
+docker compose up mcp       # StreamableHTTP MCP만
+docker compose up mcpo      # REST/OpenAPI만
+
+# 백그라운드 실행
+docker compose up -d --build
+
+# 종료
+docker compose down
+```
+
+| 서비스 | 포트 | 엔드포인트 | 설명 |
+|--------|------|-----------|------|
+| `mcp` | `APP_PORT` (기본 8000) | `/mcp` | StreamableHTTP MCP 서버 |
+| `mcpo` | `MCPO_PORT` (기본 8001) | `/docs`, `/<tool_name>` | REST/OpenAPI 래퍼 |
+| `mcp-proxy` | 9000 | `/sse` | SSE 브릿지 (기본 주석 처리) |
+
+> `.env` 파일이 있으면 포트 등 환경 변수를 자동으로 읽습니다.
+
+### 실행 모드 전환
+
+`docker-compose.yml`의 `command`를 변경하거나, `Dockerfile` 내 `CMD` 주석을 전환합니다.
+
+**docker-compose.yml에서 직접 지정 (권장):**
+
+```yaml
+services:
+  mcp:
+    command: ["mcp", "run", "registry.py", "--transport", "streamable-http", "--port", "8000"]
+```
+
+**docker run으로 단독 실행:**
+
+```bash
+docker build -t my-custom-mcp .
+
+# StreamableHTTP
+docker run -p 8000:8000 my-custom-mcp \
+  mcp run registry.py --transport streamable-http --port 8000
+
+# mcpo (REST/OpenAPI)
+docker run -p 8001:8001 my-custom-mcp \
+  mcpo --port 8001 -- python main.py
+
+# stdio (Claude Desktop 등 로컬 연동용)
+docker run -i my-custom-mcp python main.py
+```
 
 ---
 
